@@ -154,7 +154,7 @@ async function fetchCounts(questionId) {
   const url = new URL(ENDPOINT_URL);
   url.searchParams.set('questionId', questionId);
   // aggregate by the date part of session (so your whole event is grouped)
-  url.searchParams.set('sessionId', SESSION_ID.split('-')[0]);
+  url.searchParams.set('sessionId', SESSION_ID); // use the full session id
   const res = await fetch(url.toString());
   return res.json();
 }
@@ -281,3 +281,4 @@ populatePresenter();
 </script>
 </body>
 </html>
+
