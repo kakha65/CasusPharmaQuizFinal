@@ -33,6 +33,7 @@
     .bar { height:20px; background:#e5e7eb; border-radius:8px; position:relative; overflow:hidden; }
     .bar > span { position:absolute; left:0; top:0; bottom:0; width:0%; background:#111; color:#fff; font-size:12px; display:flex; align-items:center; justify-content:flex-end; padding-right:6px; transition:width .3s ease; }
     .small { font-size:12px; color:#444; }
+    .warn { background:#fff4e5; border:1px solid #ffd8a8; padding:10px 12px; border-radius:8px; }
   </style>
 </head>
 <body>
@@ -40,7 +41,7 @@
 <div class="quiz-container">
   <div class="header">
     <h2>აკულიპონ 600 / აკულიპონ კომპი / მაგნონორმ გენერიკონი <span id="modePill" class="pill"></span></h2>
-    <div id="timeDisplay">20 წ</div>
+    <div id="timeDisplay"></div>
     <div class="timer-bar" id="timerBar"></div>
   </div>
 
@@ -71,11 +72,11 @@
 
 <script>
 /* ========= CONFIG ========= */
-const ENDPOINT_URL = 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'; // <-- replace
+const ENDPOINT_URL = 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'; // <— paste your real Apps Script Web App URL
 const TOTAL_TIME = 10; // seconds per question
 const CHOICES = ['A','B','C','D']; // maps to answer order
-// Session: you can pass ?session=2025-09-28-Drugs; otherwise use today
 const DEFAULT_SESSION = new Date().toISOString().slice(0,10);
+const BACKEND_CONFIGURED = !!ENDPOINT_URL && !ENDPOINT_URL.includes('PASTE_YOUR_APPS_SCRIPT');
 
 /* ========= SESSION / MODE ========= */
 function uuid(){ return 'xxxxxxxyxxxx'.replace(/[xy]/g,c=>((Math.random()*16)|0).toString(16)); }
@@ -86,10 +87,9 @@ function getSessionId(){
 const SESSION_ID = getSessionId();
 const isPresenter = new URL(location.href).searchParams.get('presenter') === '1';
 document.getElementById('modePill').textContent = isPresenter ? '— პრეზენტერი' : '— აუდიტორია';
-document.getElementById('sessionLabel')?.append(SESSION_ID.split('-')[0]);
+document.getElementById('sessionLabel')?.append(SESSION_ID);
 
-/* ========= YOUR ORIGINAL QUESTION BANK ========= */
-/* kept as-is; we add stable IDs (Q1..Qn) automatically */
+/* ========= QUESTION BANK ========= */
 const quizData = [
   { question:"ქვემოთ ჩამოთვლილთაგან რომელია ალფა-ლიპოს მჟავას მოქმედების მთავარი მექანიზმი?",
     answers:["ანტიოქსიდაცია, გლუკოზის და ლიპიდების მეტაბოლიზმი, მძიმე მეტალების ხელაცია","კალციუმის და ფოსფორის ცვლა, ნატრიუმის რეაბსორბცია","B1 და B6 ვიტამინების აბსორბცია, რკინის მარაგების აღდგენა ","კატაბოლიზმის გაძლიერება, ლიპიდების და ცილების მეტაბოლიზმი"], correct:0 },
@@ -106,7 +106,7 @@ const quizData = [
   { question:"ჩამოთვლილთაგან რომელია მცდარი მაგნიუმთან მიმართებაში?", answers:["დიეტური მაგნიუმი ყოველთვის საკმარისია ორგანიზმში მისი ფიზიოლოგიური დონის შესანარჩუნებლად","საკვებიდან მაგნიუმის ათვისებაზე მოქმედებს სხვადასხვა ფაქტორები","სისხლში ცირკულირებს მაგნიუმის მარაგის მხოლოდ 1%; დანარჩენი აკუმულირებულია ქსოვილებში, ძირითადად კი ძვალში","შრატში მაგნიუმის კონცენტრაცია ყოველთვის არ ასახავს ორგანიზმში მის შემცველობას"], correct:0 },
   { question:"ჩამოთვლითაგან რა არის აუცილებელი მაგნიუმის სტატუსის შესაფასებლად?", answers:["მხოლოდ მაგნიუმის კონცენტრაციის განსაზღვრა სისხლის შრატში","მხოლოდ ანამნეზური მონაცემები","მხოლოდ დეფიციტის კლინიკური გამოვლინებები (სიმპტომები)","ყველა ჩამოთვლილი"], correct:3 },
   { question:"ჩამოთვლილთაგან რომელი არ მიეკუთვნება მაგნიუმის დეფიციტის სიმპტომებს?", answers:["დაღლილობა, სისუსტე და კუნთოვანი კრამპები","თმის ცვენა, ფრჩხილების მტვრევა და კბილების კარიესი","უძილობა, თავის ტკივილი, შფოთვა","არითმია (მათ შორის torsades de pointes), გულყრა, პრეეკლამპსია/ეკლამპსია"], correct:1 },
-  { question:"ჩამოთვლილთაგან ყველაზე ნაკლებად რომელია ასოცირებული მაგნიუმის დეფიციტთან?", answers:["პროტონული ტუმბოს ინჰიბიტორების, დიურეტიკების ან ანტიბიოტიკების მიღება","თირკმლების ქრონიკული უკმარისობა, ცელიაკია და კრონის დაავადება","პოლიცისტური საკვერცხის სინდრომი და არატოქსიკური კვანძოვანი ჩიყვი","ალკოჰოლის ქრონიკული მოხმარება, ტიპი 2 შაქრიანი დიაბეტი და პრეეკლამსია/ეკლამსია"], correct:2 },
+  { question:"ჩამოთვლილთაგან ყველაზე ნაკლებად რომელია ასოცირებული მაგნიუმის დეფიციტთან?", answers:["პროტონული ტუმბოს ინჰიბიტორების, დიურეტიკების ან ანტიბიოტიკების მიღება","თირკმლების ქრონიკული უკმარისობა, ცელიაკია და კრონის დაავადება","პოლიცისტური საკვერცხის სინდრომი და არატოქსიკური კვანძოვანი ჩიყვი","ალკოჰოლის ქრონიკული მოხმარება, ტიპი 2 შაქრიანი დიაბეტი და პრეეკლამფსია/ეკლამფსია"], correct:2 },
   { question:"მაგნიუმის დეფიციტის შემთხვევაში რა განაპირობებეს კუნთოვან კრამპებს?", answers:["GABA-ერგული გადაცემის გაძლიერება","ნერვულკუნთოვანი აგზნებადობის მატება","კალიუმის უჯრედშიდა აკუმულაცია","მიოპათიური ქსოვილის პროლიფერაცია"], correct:1 },
   { question:"რით არის განპირობებული მაგნონორმის სედაციური ეფექტი ინსომნიის დროს?", answers:["ჰიპოთალამუსზე პირდაპირი ზემოქმედებით","ჰორმონული ბალანსის რეგულაციით","პარასიმპათიკური ტონუსის გაძლიერებით და ნეირომედიატორული აგზნების დაქვეითებით","ნატრიუმის არხების ბლოკით"], correct:2 },
   { question:"ჩამოთვლილთაგან რომელი არ არის ჭეშმარიტი მაგნიუმით ინტოქსიკაციასთან მიმართებაში?", answers:["ჯანსაღ პირებში დიეტური მაგნიუმით ინტოქსიკაცია, პრაქტიკულად, არ ვითარდება","მაგნიუმით ინტოქსიკაცია ხშირია მისი შემცველი მედიკამენტებით მკურნალობის შემთხვევაში","მაგნიუმით ინტოქსიკაცია ვითარდება ელემენტარული მაგნიუმის დღიური დოზის 2500 მგ გადაჭარბების შემთხვევაში","მაგნიუმით ინტოქისკაციას ხელს უწყობს თირკმლების უკმარისობა"], correct:1 },
@@ -140,23 +140,28 @@ function currentQ(){ return quizData[idx]; }
 
 /* ========= BACKEND ========= */
 async function submitChoice(questionId, choiceLetter) {
-  if (!ENDPOINT_URL || ENDPOINT_URL.startsWith('PASTE_')) return; // backend not configured
+  if (!BACKEND_CONFIGURED) { console.warn('Backend not configured; skipping submit'); return; }
   try {
     await fetch(ENDPOINT_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
+      cache:'no-store',
       body: JSON.stringify({ sessionId: SESSION_ID, questionId, choice: choiceLetter })
     });
-  } catch(e) { /* swallow network errors in audience mode */ }
+  } catch(e) { console.warn('Submit failed:', e); }
 }
 
 async function fetchCounts(questionId) {
   const url = new URL(ENDPOINT_URL);
   url.searchParams.set('questionId', questionId);
-  // aggregate by the date part of session (so your whole event is grouped)
-  url.searchParams.set('sessionId', SESSION_ID); // use the full session id
-  const res = await fetch(url.toString());
-  return res.json();
+  url.searchParams.set('sessionId', SESSION_ID); // use the full session id (matches audience)
+  try {
+    const res = await fetch(url.toString(), { cache:'no-store' });
+    return res.json();
+  } catch (e) {
+    console.warn('Fetch counts failed:', e);
+    return { ok:false, counts:{} };
+  }
 }
 
 /* ========= QUIZ FLOW (Audience) ========= */
@@ -223,7 +228,6 @@ startBtn.onclick = startTimer;
 function populatePresenter(){
   if (!isPresenter) return;
   presenterPanel.style.display='block';
-  // fill select
   qSelect.innerHTML = '';
   quizData.forEach((q,i)=>{
     const opt=document.createElement('option');
@@ -246,9 +250,20 @@ async function renderPresenter(){
   const qid = qSelect.value || questionIdFor(0);
   const i = Number(qid.replace('Q',''))-1;
   presenterTitle.textContent = quizData[i]?.question || qid;
-  // skeleton rows (A..D) in fixed order
+
   presenterBars.innerHTML='';
   const container=document.createElement('div'); container.style.display='grid'; container.style.gap='10px';
+
+  // backend warning if not configured
+  if (!BACKEND_CONFIGURED) {
+    const warn = document.createElement('div');
+    warn.className = 'warn';
+    warn.innerHTML = '⚠️ Backend არ არის კონფიგურირებული. ჩასვით თქვენი Google Apps Script Web App URL ცვლადში <code>ENDPOINT_URL</code> და განაახლეთ გვერდი.';
+    presenterBars.appendChild(warn);
+    // draw empty bars so layout is stable
+  }
+
+  // skeleton rows (A..D) in fixed order
   CHOICES.forEach(ch=>{
     const label=document.createElement('div'); label.className='small'; label.textContent=ch;
     const bar=document.createElement('div'); bar.className='bar';
@@ -258,27 +273,28 @@ async function renderPresenter(){
   });
   presenterBars.appendChild(container);
 
-  if (!ENDPOINT_URL || ENDPOINT_URL.startsWith('PASTE_')) return; // no backend yet
+  if (!BACKEND_CONFIGURED) return;
 
-  try{
-    const data = await fetchCounts(qid);
-    const counts = data?.counts || {};
-    const totals = CHOICES.map(ch => counts[ch]||0);
-    const total = totals.reduce((a,b)=>a+b,0) || 0;
-    const fills = presenterBars.querySelectorAll('.bar > span');
-    totals.forEach((n,ix)=>{
-      const pct = total ? Math.round(n*100/total) : 0;
-      fills[ix].style.width = pct+'%';
-      fills[ix].textContent = `${n} (${pct}%)`;
-    });
-  }catch(e){ /* ignore */ }
+  const data = await fetchCounts(qid);
+  const counts = data?.counts || {};
+  const totals = CHOICES.map(ch => counts[ch]||0);
+  const total = totals.reduce((a,b)=>a+b,0) || 0;
+  const fills = presenterBars.querySelectorAll('.bar > span');
+  totals.forEach((n,ix)=>{
+    const pct = total ? Math.round(n*100/total) : 0;
+    fills[ix].style.width = pct+'%';
+    fills[ix].textContent = `${n} (${pct}%)`;
+  });
 }
 
 /* ========= INIT ========= */
+timeDisplay.textContent = `${TOTAL_TIME} წ`; // show initial time correctly
 if (isPresenter) { document.getElementById('quiz').style.display='none'; }
 loadQuestion();
 populatePresenter();
 </script>
 </body>
 </html>
+
+
 
