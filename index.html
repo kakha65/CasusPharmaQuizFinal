@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <meta charset="UTF-8">
+  <title>ანიმირებული კუიზი — ცოცხალი ხმის მიცემა</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: calibri, system-ui, -apple-system, Arial; background:#e3f2fd; margin:0; }
+    .quiz-container { max-width: 720px; margin: 24px auto; background:#fff; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.1); overflow:hidden; }
+    .header { background:#2196f3; color:#fff; padding:16px 20px; position:sticky; top:0; z-index:10; }
+    .header h2 { margin:0; font-size:20px; }
+    #timeDisplay { margin-top:6px; font-size:14px; opacity:.9; }
+    .timer-bar { height:5px; background:#4caf50; transition:width 1s linear; }
+    .wrap { padding:20px; }
+    .question { font-size:20px; font-weight:700; margin:12px 0 14px; }
+    .answers { list-style:none; padding:0; margin:0; }
+    .answers li { margin-bottom:12px; }
+    .answers button { width:100%; padding:12px; background:#f5f5f5; border:2px solid transparent; border-radius:8px; cursor:pointer; font-size:15px; }
+    .answers button:hover:not(:disabled) { background:#eaeaea; }
+    .answers button:disabled { background:#f5f5f5; color:#999; cursor:default; }
+    .feedback { margin-top:16px; min-height:28px; font-weight:700; }
+    .feedback.correct { color:#2e7d32; }
+    .feedback.incorrect { color:#c62828; }
+    #nextBtn, #startTimerBtn { margin-top:16px; padding:10px 16px; font-size:16px; border:none; border-radius:8px; cursor:pointer; }
+    #nextBtn { background:#2196f3; color:#fff; display:none; }
+    #startTimerBtn { background:#4caf50; color:#fff; display:none; }
+    .score { text-align:center; padding:32px; display:none; }
+    /* Presenter */
+    .presenter { display:none; padding:16px; border-top:1px solid #eee; background:#fafafa; }
+    .row { margin:8px 0; }
+    .select { padding:6px 10px; border-radius:8px; border:1px solid #ddd; }
+    .pill { display:inline-block; border:1px solid #fff; border-radius:999px; padding:2px 8px; font-size:12px; margin-left:8px; background:rgba(255,255,255,.25); }
+    .bar { height:20px; background:#e5e7eb; border-radius:8px; position:relative; overflow:hidden; }
+    .bar > span { position:absolute; left:0; top:0; bottom:0; width:0%; background:#111; color:#fff; font-size:12px; display:flex; align-items:center; justify-content:flex-end; padding-right:6px; transition:width .3s ease; }
+    .small { font-size:12px; color:#444; }
+  </style>
+</head>
+<body>
+
+<div class="quiz-container">
+  <div class="header">
+    <h2>აკულიპონ 600 / აკულიპონ კომპი / მაგნონორმ გენერიკონი <span id="modePill" class="pill"></span></h2>
+    <div id="timeDisplay">20 წ</div>
+    <div class="timer-bar" id="timerBar"></div>
+  </div>
+
+  <!-- PRESENTER PANEL (visible with ?presenter=1) -->
+  <div id="presenterPanel" class="presenter">
+    <div class="row">
+      <label class="small">კითხვა: <select id="presenterQuestionSelect" class="select"></select></label>
+      <button id="refreshBtn" style="margin-left:8px">Refresh</button>
+      <button id="autoBtn" style="margin-left:8px">Auto: Off</button>
+      <span class="small" style="margin-left:12px">Session: <span id="sessionLabel"></span></span>
+    </div>
+    <div id="presenterTitle" class="question" style="margin-top:4px;"></div>
+    <div id="presenterBars"></div>
+    <div class="small" style="margin-top:6px;">აჩვენეთ ეს პანელი ეკრანზე მაშინ, როცა გსურთ შედეგების განხილვა.</div>
+  </div>
+
+  <!-- AUDIENCE QUIZ -->
+  <div class="wrap" id="quiz">
+    <div id="question" class="question"></div>
+    <ul id="answers" class="answers"></ul>
+    <div id="feedback" class="feedback"></div>
+    <button id="startTimerBtn">დაწყება</button>
+    <button id="nextBtn">შემდეგი კითხვა</button>
+  </div>
+
+  <div class="score" id="result"></div>
+</div>
+
+<script>
+/* ========= CONFIG ========= */
+const ENDPOINT_URL = 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'; // <-- replace
+const TOTAL_TIME = 10; // seconds per question
+const CHOICES = ['A','B','C','D']; // maps to answer order
+// Session: you can pass ?session=2025-09-28-Drugs; otherwise use today
+const DEFAULT_SESSION = new Date().toISOString().slice(0,10);
+
+/* ========= SESSION / MODE ========= */
+function uuid(){ return 'xxxxxxxyxxxx'.replace(/[xy]/g,c=>((Math.random()*16)|0).toString(16)); }
+function getSessionId(){
+  const url = new URL(location.href);
+  return url.searchParams.get('session') || localStorage.getItem('mcq_session') || (localStorage.setItem('mcq_session', DEFAULT_SESSION+'-'+uuid()), localStorage.getItem('mcq_session'));
+}
+const SESSION_ID = getSessionId();
+const isPresenter = new URL(location.href).searchParams.get('presenter') === '1';
+document.getElementById('modePill').textContent = isPresenter ? '— პრეზენტერი' : '— აუდიტორია';
+document.getElementById('sessionLabel')?.append(SESSION_ID.split('-')[0]);
+
+/* ========= YOUR ORIGINAL QUESTION BANK ========= */
+/* kept as-is; we add stable IDs (Q1..Qn) automatically */
+const quizData = [
+  { question:"ქვემოთ ჩამოთვლილთაგან რომელია ალფა-ლიპოს მჟავას მოქმედების მთავარი მექანიზმი?",
+    answers:["ანტიოქსიდაცია, გლუკოზის და ლიპიდების მეტაბოლიზმი, მძიმე მეტალების ხელაცია","კალციუმის და ფოსფორის ცვლა, ნატრიუმის რეაბსორბცია","B1 და B6 ვიტამინების აბსორბცია, რკინის მარაგების აღდგენა ","კატაბოლიზმის გაძლიერება, ლიპიდების და ცილების მეტაბოლიზმი"], correct:0 },
+  { question:"რომელი კომპონენტი არ შედის აკულიპონის შემადგენლობაში?", answers:["ვიტამინი C","ვიტამინი B1","ვიტამინი B6","თუთია"], correct:0 },
+  { question:"რა ნიშნით გამოირჩევა აკულიპონი 600 ქართულ ბაზარზე არსებული ანალოგებისგან?", answers:["მხოლოდ აკულიპონი შეიცავს 600 მგ ალფა-ლიპოს მჟავას","მხოლოდ აკულიპონი შეიცავს B1/B6 ვიტამინებს და თუთიას, რომლებიც აპოტენცირებენ ალფა-ლიპოს მჟავას ანტიოქსიდაციურ ეფექტს","მხოლოდ აკულიპონ 600-ს ახასიათებს ალფა-ლიპოს მჟავას სწრაფი, პიკური გამოთავისუფლება","მხოლოდ აკულიპონ 600-ს აქვს ანტიოქსიდაციური ეფექტი"], correct:1 },
+  { question:"რა აერთიანებს ჰიპერლიპიდემიას, მწეველობას, შაქრიან დიაბეტს, ჰიპერჰომოცისტეინემიას, სიმსუქნეს და ჰიპერტენზიას?", answers:["ოქსიდაციური სტრესი","მეორადი მესინჯერების ემისია","ანთებითი ციტოკინების ინჰიბიცია","ნერვული იმპულსების გატარების დაბრკოლება"], correct:0 },
+  { question:"რა შემთხვევაში გამოიყენება ალფა-ლიპოს მჟავა?", answers:["შაქრიანი დიაბეტი და მეტაბოლური სინდრომი","ალცჰაიმერის დაავადება, კოგნიტიური დისფუნქცია","სიმსუქნე, ღვიძლის გაცხიმება","ყველა ჩამოთვლილი"], correct:3 },
+  { question:"ქვემოთ ჩამოთვლილთაგან რომელია ჭეშმარიტი ალფა-ლიპოს მჟავას და დიაბეტურ ნეიროპათიასთან მიმართებაში?", answers:["ალფა-ლიპოს მჟავა დიაბეტური ნეიროპათიის ძირითადი სამკურნალო საშუალებაა","ალფა-ლიპოს მჟავა არ გამოიყენება დიაბეტური ნეიროპათიის სამკურნალოდ","ალფა-ლიპოს მჟავა გამოიყენება დიაბეტური ნეიროპათიის მხოლოდ სიმპტომური მკურნალობის მიზნით","ალფა-ლიპოს მჟავა გამოიყენება დიაბეტური ნეიროპათიის პათოგენეზური და სიმპტომური მკურნალობის მიზნით"], correct:3 },
+  { question:"ალკოჰოლთან ასოცირებული რომელი პათოლოგიის დროს გამოიყენება აკულიპონ 600?", answers:["ალკოჰოლით მწვავე ინტოქსიკაცია","ალკოჰოლური ჰალუცინოზი","ალკოჰოლური ნეიროპათია","ალკოჰოლური პანკრეატიტი"], correct:2 },
+  { question:"რა ეფექტის გამო გამოიყენება აკულიპონ 600 ფსიქოსტიმულანტებით გამოწვეული ნეიროტოქსიურობის შემთხვევაში?", answers:["დოფამინის რეცეპტორების ბლოკერული თვისების გამო","თავის ტვინში მეტაბოლური აქტივობის სტიმულირების გამო","ნეირონების ოქსიდაციური დაზიანების ინჰიბიციის და გლიოზის პრევენციის უნარის გამო","იმუნოსუპრესიული თვისების გამო"], correct:2 },
+  { question:"რა კომპონენტებს შეიცავს აკულიპონ კომპი?", answers:["ალფა-ლიპოს მჟავა, ვიტამინები B1/B12 და გინკო ბილობა","მაგნიუმი, კალციუმი და ასკორბინის მჟავა","გლუტათიონი და ვიტამინები C და E","კოენზიმ Q10 და გინკო ბილობა"], correct:0 },
+  { question:"ჩამოთვლილთაგან რომელი ჩივილი არ წარმოადგენს აკულიპონ კომპის ჩვენებას?", answers:["კიდურების დაბუჟება","კოორდინაციის მოშლა","ჰალუცინაცია","კუნთოვანი სისუსტე"], correct:2 },
+  { question:"ჩამოთვლილთაგან რომელია მცდარი მაგნიუმის როლთან მიმართებაში?", answers:["მაგნიუმი აქვეითებს ძვლის მინერალურ სიმკვრივეს და ზრდის მოტეხილობის რისკს","მაგნიუმი ესენციურ როლს ასრულებს ATP-ის სინთეზში და არის 400-ზე მეტი ენზიმის კოფერმენტი","მაგნიუმი მონაწილეობს გლუკოზის, ცილების და ლიპიდების მეტაბოლიზმში","მაგნიუმი მონაწილეობს ნერვულ-კუნთოვანი ფუნქციის უზრუნველყოფაში, ცირკადული რითმის რეგულაციასა და სისხლძარღვთა ტონუსის მოდულაციაში"], correct:0 },
+  { question:"ჩამოთვლილთაგან რომელია მცდარი მაგნიუმთან მიმართებაში?", answers:["დიეტური მაგნიუმი ყოველთვის საკმარისია ორგანიზმში მისი ფიზიოლოგიური დონის შესანარჩუნებლად","საკვებიდან მაგნიუმის ათვისებაზე მოქმედებს სხვადასხვა ფაქტორები","სისხლში ცირკულირებს მაგნიუმის მარაგის მხოლოდ 1%; დანარჩენი აკუმულირებულია ქსოვილებში, ძირითადად კი ძვალში","შრატში მაგნიუმის კონცენტრაცია ყოველთვის არ ასახავს ორგანიზმში მის შემცველობას"], correct:0 },
+  { question:"ჩამოთვლითაგან რა არის აუცილებელი მაგნიუმის სტატუსის შესაფასებლად?", answers:["მხოლოდ მაგნიუმის კონცენტრაციის განსაზღვრა სისხლის შრატში","მხოლოდ ანამნეზური მონაცემები","მხოლოდ დეფიციტის კლინიკური გამოვლინებები (სიმპტომები)","ყველა ჩამოთვლილი"], correct:3 },
+  { question:"ჩამოთვლილთაგან რომელი არ მიეკუთვნება მაგნიუმის დეფიციტის სიმპტომებს?", answers:["დაღლილობა, სისუსტე და კუნთოვანი კრამპები","თმის ცვენა, ფრჩხილების მტვრევა და კბილების კარიესი","უძილობა, თავის ტკივილი, შფოთვა","არითმია (მათ შორის torsades de pointes), გულყრა, პრეეკლამპსია/ეკლამპსია"], correct:1 },
+  { question:"ჩამოთვლილთაგან ყველაზე ნაკლებად რომელია ასოცირებული მაგნიუმის დეფიციტთან?", answers:["პროტონული ტუმბოს ინჰიბიტორების, დიურეტიკების ან ანტიბიოტიკების მიღება","თირკმლების ქრონიკული უკმარისობა, ცელიაკია და კრონის დაავადება","პოლიცისტური საკვერცხის სინდრომი და არატოქსიკური კვანძოვანი ჩიყვი","ალკოჰოლის ქრონიკული მოხმარება, ტიპი 2 შაქრიანი დიაბეტი და პრეეკლამსია/ეკლამსია"], correct:2 },
+  { question:"მაგნიუმის დეფიციტის შემთხვევაში რა განაპირობებეს კუნთოვან კრამპებს?", answers:["GABA-ერგული გადაცემის გაძლიერება","ნერვულკუნთოვანი აგზნებადობის მატება","კალიუმის უჯრედშიდა აკუმულაცია","მიოპათიური ქსოვილის პროლიფერაცია"], correct:1 },
+  { question:"რით არის განპირობებული მაგნონორმის სედაციური ეფექტი ინსომნიის დროს?", answers:["ჰიპოთალამუსზე პირდაპირი ზემოქმედებით","ჰორმონული ბალანსის რეგულაციით","პარასიმპათიკური ტონუსის გაძლიერებით და ნეირომედიატორული აგზნების დაქვეითებით","ნატრიუმის არხების ბლოკით"], correct:2 },
+  { question:"ჩამოთვლილთაგან რომელი არ არის ჭეშმარიტი მაგნიუმით ინტოქსიკაციასთან მიმართებაში?", answers:["ჯანსაღ პირებში დიეტური მაგნიუმით ინტოქსიკაცია, პრაქტიკულად, არ ვითარდება","მაგნიუმით ინტოქსიკაცია ხშირია მისი შემცველი მედიკამენტებით მკურნალობის შემთხვევაში","მაგნიუმით ინტოქსიკაცია ვითარდება ელემენტარული მაგნიუმის დღიური დოზის 2500 მგ გადაჭარბების შემთხვევაში","მაგნიუმით ინტოქისკაციას ხელს უწყობს თირკმლების უკმარისობა"], correct:1 },
+  { question:"რა ნიშნით გამოირჩევა მაგნონორმ გენერიკონი 365 ქართულ ბაზარზე არსებული მაგნიუმის პრეპარატებისგან?", answers:["ავსტრიული ხარისხით","შაქრიანი დიაბეტსიადმი ნეიტრალურობით","ერთხელ მიღების კომფორტული და სასიამოვნო ფორმით","ყველა ჩამოთვლილით"], correct:3 }
+];
+
+/* ========= ELEMENTS ========= */
+const qEl = document.getElementById('question');
+const aEl = document.getElementById('answers');
+const fbEl = document.getElementById('feedback');
+const nextBtn = document.getElementById('nextBtn');
+const startBtn = document.getElementById('startTimerBtn');
+const timeDisplay = document.getElementById('timeDisplay');
+const timerBar = document.getElementById('timerBar');
+const resultEl = document.getElementById('result');
+const quizEl = document.getElementById('quiz');
+const presenterPanel = document.getElementById('presenterPanel');
+const qSelect = document.getElementById('presenterQuestionSelect');
+const presenterTitle = document.getElementById('presenterTitle');
+const presenterBars = document.getElementById('presenterBars');
+
+/* ========= STATE ========= */
+let idx = 0, correctCount = 0, incorrectCount = 0, timer = null, timeLeft = TOTAL_TIME;
+
+/* ========= HELPERS ========= */
+function updateTimer(){ timeDisplay.textContent = `${timeLeft} წამი`; timerBar.style.width = `${(timeLeft/TOTAL_TIME)*100}%`; }
+function lockAnswers(disabled=true){ aEl.querySelectorAll('button').forEach(b => b.disabled = disabled); }
+function letterFor(i){ return CHOICES[i] || String(i+1); }
+function questionIdFor(i){ return `Q${i+1}`; }
+function currentQ(){ return quizData[idx]; }
+
+/* ========= BACKEND ========= */
+async function submitChoice(questionId, choiceLetter) {
+  if (!ENDPOINT_URL || ENDPOINT_URL.startsWith('PASTE_')) return; // backend not configured
+  try {
+    await fetch(ENDPOINT_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ sessionId: SESSION_ID, questionId, choice: choiceLetter })
+    });
+  } catch(e) { /* swallow network errors in audience mode */ }
+}
+
+async function fetchCounts(questionId) {
+  const url = new URL(ENDPOINT_URL);
+  url.searchParams.set('questionId', questionId);
+  // aggregate by the date part of session (so your whole event is grouped)
+  url.searchParams.set('sessionId', SESSION_ID.split('-')[0]);
+  const res = await fetch(url.toString());
+  return res.json();
+}
+
+/* ========= QUIZ FLOW (Audience) ========= */
+function loadQuestion(){
+  clearInterval(timer); timer=null; fbEl.textContent=''; fbEl.className='feedback';
+  startBtn.style.display='inline-block'; nextBtn.style.display='none'; aEl.innerHTML=''; qEl.textContent='';
+
+  const q = currentQ();
+  qEl.textContent = q.question;
+  q.answers.forEach((txt,i)=>{
+    const li=document.createElement('li');
+    const btn=document.createElement('button');
+    btn.textContent = `${letterFor(i)}) ${txt}`;
+    btn.disabled = true;
+    btn.onclick = ()=> selectAnswer(i);
+    li.appendChild(btn); aEl.appendChild(li);
+  });
+  timeLeft = TOTAL_TIME; updateTimer();
+}
+
+function startTimer(){
+  lockAnswers(false); startBtn.style.display='none';
+  timer = setInterval(()=>{
+    timeLeft--; updateTimer();
+    if (timeLeft<=0){ clearInterval(timer); timer=null; showFeedback(null); lockAnswers(); nextBtn.style.display='inline-block';
+      submitChoice(questionIdFor(idx), 'NoAnswer'); }
+  },1000);
+}
+
+function selectAnswer(selIdx){
+  clearInterval(timer); timer=null; lockAnswers();
+  const q = currentQ(), correctIdx = q.correct;
+  const ok = selIdx===correctIdx;
+  showFeedback(ok, q.answers[correctIdx]);
+  nextBtn.style.display='inline-block';
+  submitChoice(questionIdFor(idx), letterFor(selIdx));
+}
+
+function showFeedback(result, correctAns=''){
+  if (result===true){ correctCount++; fbEl.textContent='✅ სწორია!'; fbEl.classList.add('correct'); }
+  else if (result===false){ incorrectCount++; fbEl.textContent=`❌ არასწორია. სწორი პასუხია: ${correctAns}`; fbEl.classList.add('incorrect'); }
+  else { incorrectCount++; fbEl.textContent='⏱ დრო ამოიწურა!'; fbEl.classList.add('incorrect'); }
+}
+
+nextBtn.onclick = ()=>{
+  idx++;
+  if (idx < quizData.length) loadQuestion();
+  else finish();
+};
+
+function finish(){
+  quizEl.style.display='none';
+  document.querySelector('.header').style.display='none';
+  resultEl.style.display='block';
+  resultEl.innerHTML = `<h2>ტესტი დასრულებულია 🎉</h2>
+  <p>✅ სწორი პასუხები: ${correctCount}</p>
+  <p>❌ მცდარი პასუხები: ${incorrectCount}</p>
+  <p>🎯 შედეგი: ${(correctCount/quizData.length*100).toFixed(1)}%</p>`;
+}
+
+startBtn.onclick = startTimer;
+
+/* ========= PRESENTER MODE ========= */
+function populatePresenter(){
+  if (!isPresenter) return;
+  presenterPanel.style.display='block';
+  // fill select
+  qSelect.innerHTML = '';
+  quizData.forEach((q,i)=>{
+    const opt=document.createElement('option');
+    opt.value = questionIdFor(i);
+    opt.textContent = `${questionIdFor(i)} — ${q.question}`;
+    qSelect.appendChild(opt);
+  });
+  qSelect.onchange = renderPresenter;
+  document.getElementById('refreshBtn').onclick = renderPresenter;
+
+  let auto=null;
+  document.getElementById('autoBtn').onclick = (e)=>{
+    if (auto){ clearInterval(auto); auto=null; e.target.textContent='Auto: Off'; }
+    else { e.target.textContent='Auto: On'; renderPresenter(); auto=setInterval(renderPresenter, 3000); }
+  };
+  renderPresenter();
+}
+
+async function renderPresenter(){
+  const qid = qSelect.value || questionIdFor(0);
+  const i = Number(qid.replace('Q',''))-1;
+  presenterTitle.textContent = quizData[i]?.question || qid;
+  // skeleton rows (A..D) in fixed order
+  presenterBars.innerHTML='';
+  const container=document.createElement('div'); container.style.display='grid'; container.style.gap='10px';
+  CHOICES.forEach(ch=>{
+    const label=document.createElement('div'); label.className='small'; label.textContent=ch;
+    const bar=document.createElement('div'); bar.className='bar';
+    const span=document.createElement('span'); span.textContent='0';
+    bar.appendChild(span);
+    container.appendChild(label); container.appendChild(bar);
+  });
+  presenterBars.appendChild(container);
+
+  if (!ENDPOINT_URL || ENDPOINT_URL.startsWith('PASTE_')) return; // no backend yet
+
+  try{
+    const data = await fetchCounts(qid);
+    const counts = data?.counts || {};
+    const totals = CHOICES.map(ch => counts[ch]||0);
+    const total = totals.reduce((a,b)=>a+b,0) || 0;
+    const fills = presenterBars.querySelectorAll('.bar > span');
+    totals.forEach((n,ix)=>{
+      const pct = total ? Math.round(n*100/total) : 0;
+      fills[ix].style.width = pct+'%';
+      fills[ix].textContent = `${n} (${pct}%)`;
+    });
+  }catch(e){ /* ignore */ }
+}
+
+/* ========= INIT ========= */
+if (isPresenter) { document.getElementById('quiz').style.display='none'; }
+loadQuestion();
+populatePresenter();
+</script>
+</body>
+</html>
